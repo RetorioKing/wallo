@@ -5,4 +5,5 @@ scikit-learn
 matplotlib
 seaborn
 mlxtend
-openpyxl
+plotly-express
+kmodes
