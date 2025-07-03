@@ -1,179 +1,285 @@
+# app.py – Streamlit dashboard for Walmart sales data (all-in-one, robust)
+# -----------------------------------------------------------------------
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import io
-from utils.data_loader import load_data
-from utils.classifiers import run_classifiers
-from utils.clusterer import run_kmeans
-from utils.regression import run_regressions
-from utils.association import run_apriori
-from sklearn.metrics import roc_curve
+import io, os
 
-st.set_page_config(layout='wide', page_title='Multi-Tab Analytics Dashboard')
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, roc_curve,
+    r2_score, mean_squared_error
+)
 
-# Sidebar
-st.sidebar.title('Upload Data')
-data_file = st.sidebar.file_uploader('Upload Excel File', type=['xlsx'])
-if data_file:
-    df = pd.read_excel(data_file)
+from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import apriori, association_rules
+
+# ──────────────────────────────
+# Helper functions (were utils/*)
+# ──────────────────────────────
+def load_data(path: str) -> pd.DataFrame:
+    """Read an Excel file and return a DataFrame."""
+    return pd.read_excel(path)
+
+def run_classifiers(X, y):
+    models = {
+        "KNN": KNeighborsClassifier(),
+        "Decision Tree": DecisionTreeClassifier(random_state=42),
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "GBRT": GradientBoostingClassifier(random_state=42)
+    }
+    Xtr, Xte, ytr, yte = train_test_split(
+        X, y, test_size=0.30, random_state=42, stratify=y
+    )
+    results = {}
+    for name, model in models.items():
+        model.fit(Xtr, ytr)
+        ypred = model.predict(Xte)
+        results[name] = {
+            "model": model,
+            "train_acc": accuracy_score(ytr, model.predict(Xtr)),
+            "test_acc":  accuracy_score(yte, ypred),
+            "precision": precision_score(yte, ypred, average="weighted", zero_division=0),
+            "recall":    recall_score   (yte, ypred, average="weighted", zero_division=0),
+            "f1":        f1_score       (yte, ypred, average="weighted", zero_division=0),
+            "confusion_matrix": confusion_matrix(yte, ypred),
+            "y_test": yte,
+            "y_pred": ypred
+        }
+    return results
+
+def run_kmeans(X, k):
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+    km = KMeans(n_clusters=k, random_state=42, n_init="auto")
+    labels = km.fit_predict(Xs)
+    return labels, km.inertia_, km
+
+def run_regressions(X, y):
+    models = {
+        "Linear": LinearRegression(),
+        "Ridge":  Ridge(alpha=1.0),
+        "Lasso":  Lasso(alpha=0.01),
+        "Decision Tree": DecisionTreeRegressor(random_state=42)
+    }
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.30, random_state=42)
+    results = {}
+    for name, model in models.items():
+        model.fit(Xtr, ytr)
+        ypred = model.predict(Xte)
+        results[name] = {
+            "train_r2": r2_score(ytr, model.predict(Xtr)),
+            "test_r2":  r2_score(yte, ypred),
+            "rmse":     mean_squared_error(yte, ypred, squared=False),
+            "model":    model,
+            "y_test":   yte,
+            "y_pred":   ypred
+        }
+    return results
+
+def run_apriori(df, cols, supp=0.1, conf=0.3):
+    df_filt = df[cols].astype(str)
+    te = TransactionEncoder()
+    onehot = pd.DataFrame(
+        te.fit(df_filt.values.tolist()).transform(df_filt.values.tolist()),
+        columns=te.columns_
+    )
+    itemsets = apriori(onehot, min_support=supp, use_colnames=True)
+    return association_rules(itemsets, metric="confidence", min_threshold=conf)
+
+# ──────────────────────────────
+# Streamlit configuration
+# ──────────────────────────────
+st.set_page_config(page_title="Walmart Sales Analytics", layout="wide")
+st.title("📊 Walmart Sales Analytics Dashboard")
+
+# ──────────────────────────────
+# Load data: upload or fallback
+# ──────────────────────────────
+st.sidebar.header("Load data")
+user_file = st.sidebar.file_uploader("Excel file (.xlsx)", type=["xlsx"])
+
+if user_file:
+    df = pd.read_excel(user_file)
+    st.sidebar.success("✅ Uploaded file loaded")
 else:
-    df = load_data('data/Anirudh_data.xlsx')
+    try:
+        df = load_data("Walmart_sales.xlsx")   # file beside app.py
+        st.sidebar.success("✅ Loaded default Walmart_sales.xlsx")
+    except FileNotFoundError:
+        df = None
+        st.sidebar.warning(
+            "⚠️ No default file found.\nPlease upload an Excel file on the sidebar."
+        )
 
-st.sidebar.info('Navigate using the tabs above.')
+# If still no DataFrame, stop the app
+if df is None:
+    st.stop()
 
+# ──────────────────────────────
 # Tabs
-tabs = st.tabs(['Data Visualization', 'Classification', 'Clustering', 'Association Rules', 'Regression'])
+# ──────────────────────────────
+tabs = st.tabs(["Visualization", "Classification",
+                "Clustering", "Association Rules", "Regression"])
 
-# 1. Data Visualization
+# 1️⃣ Visualization
 with tabs[0]:
-    st.header('Data Visualization & Insights')
-    st.subheader('Dataset Overview')
+    st.subheader("Dataset preview")
     st.dataframe(df.head())
 
-    st.subheader('Descriptive Statistics')
-    st.dataframe(df.describe(include='all'))
+    st.subheader("Descriptive statistics")
+    st.dataframe(df.describe(include="all"))
 
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    cat_cols = df.select_dtypes(include=['object', 'category']).columns
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    cat_cols = df.select_dtypes(include=["object", "category"]).columns
 
-    st.subheader('Numeric Distributions')
-    for col in numeric_cols[:3]:
-        fig, ax = plt.subplots()
-        sns.histplot(df[col], kde=True, ax=ax)
-        ax.set_title(f'Distribution of {col}')
-        st.pyplot(fig)
+    if len(num_cols):
+        st.subheader("Numeric distributions (first 3)")
+        for col in num_cols[:3]:
+            fig, ax = plt.subplots()
+            sns.histplot(df[col], kde=True, ax=ax)
+            ax.set_title(f"{col} distribution")
+            st.pyplot(fig)
 
-    st.subheader('Correlation Heatmap')
-    if len(numeric_cols) >= 2:
-        fig, ax = plt.subplots(figsize=(8,5))
-        sns.heatmap(df[numeric_cols].corr(), annot=True, fmt='.2f', cmap='coolwarm', ax=ax)
-        st.pyplot(fig)
+        if len(num_cols) >= 2:
+            st.subheader("Correlation heatmap")
+            fig, ax = plt.subplots(figsize=(8, 5))
+            sns.heatmap(df[num_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
+            st.pyplot(fig)
 
-    st.subheader('Top Categories')
-    for col in cat_cols[:2]:
-        st.write(df[col].value_counts().head(10).to_frame())
+    if len(cat_cols):
+        st.subheader("Top-category value counts (first 2)")
+        for col in cat_cols[:2]:
+            st.write(df[col].value_counts().head(10).to_frame())
 
-# 2. Classification
+# 2️⃣ Classification
 with tabs[1]:
-    st.header('Classification')
-    all_cols = df.columns
-    target = st.selectbox('Select target column', all_cols)
-    features = st.multiselect('Select feature columns', all_cols.drop(target), default=list(all_cols.drop(target)[:5]))
-    if st.button('Run Classification') and len(features) > 0:
-        X = df[features]
-        y = df[target]
-        results = run_classifiers(X, y)
+    st.header("Classification")
+    target = st.selectbox("Target (categorical/binary)", df.columns)
+    features = st.multiselect(
+        "Feature columns", df.columns.drop(target),
+        default=list(df.columns.drop(target)[:5])
+    )
 
-        st.subheader('Performance Metrics')
-        perf_df = pd.DataFrame({name: {
-            'Train Acc': res['train_acc'],
-            'Test Acc': res['test_acc'],
-            'Precision': res['precision'],
-            'Recall': res['recall'],
-            'F1': res['f1']
-        } for name, res in results.items()}).T
-        st.dataframe(perf_df.style.format('{:.2f}'))
+    if st.button("Run classification") and features:
+        X, y = df[features], df[target]
+        clf_res = run_classifiers(X, y)
 
-        st.subheader('ROC Curves')
+        st.subheader("Performance metrics")
+        perf = pd.DataFrame({
+            n: {"Train Acc": r["train_acc"], "Test Acc": r["test_acc"],
+                "Precision": r["precision"], "Recall": r["recall"], "F1": r["f1"]}
+            for n, r in clf_res.items()
+        }).T
+        st.dataframe(perf.style.format("{:.2f}"))
+
+        st.subheader("Confusion matrix & ROC")
+        model_sel = st.selectbox("Model", list(clf_res.keys()))
+        cm = clf_res[model_sel]["confusion_matrix"]
         fig, ax = plt.subplots()
-        for name, res in results.items():
-            model = res['model']
-            if hasattr(model, 'predict_proba'):
-                y_score = model.predict_proba(X)[:,1]
-            else:
-                y_score = model.decision_function(X)
-            fpr, tpr, _ = roc_curve(y, y_score)
-            ax.plot(fpr, tpr, label=name)
-        ax.plot([0,1],[0,1],'--')
-        ax.set_xlabel('False Positive Rate')
-        ax.set_ylabel('True Positive Rate')
-        ax.legend()
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+        ax.set_xlabel("Predicted"); ax.set_ylabel("Actual")
         st.pyplot(fig)
 
-        st.subheader('Confusion Matrix')
-        sel_model = st.selectbox('Choose model', list(results.keys()))
-        cm = results[sel_model]['confusion_matrix']
         fig, ax = plt.subplots()
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
-        ax.set_xlabel('Predicted')
-        ax.set_ylabel('Actual')
+        for n, r in clf_res.items():
+            mdl = r["model"]
+            scores = (
+                mdl.predict_proba(X)[:, 1]
+                if hasattr(mdl, "predict_proba")
+                else mdl.decision_function(X)
+            )
+            fpr, tpr, _ = roc_curve(y, scores)
+            ax.plot(fpr, tpr, label=n)
+        ax.plot([0, 1], [0, 1], "--")
+        ax.set_xlabel("FPR"); ax.set_ylabel("TPR"); ax.legend()
         st.pyplot(fig)
 
-        st.subheader('Predict on New Data')
-        pred_file = st.file_uploader('Upload new data (features only)', type=['xlsx'])
+        st.subheader("Predict on new data")
+        pred_file = st.file_uploader(
+            "Upload feature-only Excel", type=["xlsx"], key="pred"
+        )
         if pred_file:
-            pred_df = pd.read_excel(pred_file)
-            preds = results[sel_model]['model'].predict(pred_df)
-            pred_df['Predicted'] = preds
-            st.dataframe(pred_df.head())
-            output = io.BytesIO()
-            pred_df.to_excel(output, index=False)
-            st.download_button('Download Predictions', output.getvalue(), file_name='predictions.xlsx')
+            new_df = pd.read_excel(pred_file)
+            new_df["Predicted"] = clf_res[model_sel]["model"].predict(new_df)
+            st.dataframe(new_df.head())
+            buf = io.BytesIO(); new_df.to_excel(buf, index=False)
+            st.download_button(
+                "Download predictions", buf.getvalue(), file_name="walmart_predictions.xlsx"
+            )
 
-# 3. Clustering
+# 3️⃣ Clustering
 with tabs[2]:
-    st.header('Clustering (K‑Means)')
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    cluster_features = st.multiselect('Select features for clustering', numeric_cols, default=list(numeric_cols[:4]))
-    n_clusters = st.slider('Number of clusters', 2, 10, 3)
-    if st.button('Run Clustering') and len(cluster_features) > 0:
-        labels, inertia, _ = run_kmeans(df[cluster_features], n_clusters)
-        df['Cluster'] = labels
-        st.write(f'Inertia (within‑cluster SSE): {inertia:.2f}')
-
+    st.header("K-Means clustering")
+    sel_feats = st.multiselect(
+        "Numeric features", num_cols,
+        default=list(num_cols[:4])
+    )
+    k = st.slider("Clusters (k)", 2, 10, 3)
+    if st.button("Run K-Means") and sel_feats:
+        labels, inertia, _ = run_kmeans(df[sel_feats], k)
+        df["Cluster"] = labels
+        st.write(f"Inertia (SSE): **{inertia:.2f}**")
         fig, ax = plt.subplots()
-        sns.countplot(x='Cluster', data=df, ax=ax)
+        sns.countplot(x="Cluster", data=df, ax=ax)
         st.pyplot(fig)
 
-        st.subheader('Cluster Profiles')
-        st.dataframe(df.groupby('Cluster')[cluster_features].mean())
+        st.subheader("Cluster means")
+        st.dataframe(df.groupby("Cluster")[sel_feats].mean())
 
-        output = io.BytesIO()
-        df.to_excel(output, index=False)
-        st.download_button('Download Clustered Data', output.getvalue(), file_name='clustered_data.xlsx')
+        buf = io.BytesIO(); df.to_excel(buf, index=False)
+        st.download_button(
+            "Download cluster-labeled data", buf.getvalue(),
+            file_name="walmart_clustered.xlsx"
+        )
 
-# 4. Association Rules
+# 4️⃣ Association Rules
 with tabs[3]:
-    st.header('Association Rule Mining')
+    st.header("Association rule mining")
     if len(cat_cols) >= 2:
-        col1 = st.selectbox('First column', cat_cols, key='col1')
-        col2 = st.selectbox('Second column', cat_cols, key='col2')
-        min_sup = st.slider('Min Support', 0.01, 1.0, 0.1)
-        min_conf = st.slider('Min Confidence', 0.01, 1.0, 0.3)
-        if st.button('Run Apriori'):
-            rules = run_apriori(df, [col1, col2], min_sup, min_conf)
-            st.dataframe(rules.sort_values('lift', ascending=False).head(10))
+        c1 = st.selectbox("Column 1", cat_cols)
+        c2 = st.selectbox("Column 2", cat_cols, index=1)
+        supp = st.slider("Min support", 0.01, 1.0, 0.1)
+        conf = st.slider("Min confidence", 0.01, 1.0, 0.3)
+        if st.button("Run Apriori"):
+            rules = run_apriori(df, [c1, c2], supp, conf)
+            st.dataframe(rules.sort_values("lift", ascending=False).head(10))
     else:
-        st.info('Need at least 2 categorical columns for Apriori.')
+        st.info("Need at least two categorical columns.")
 
-# 5. Regression
+# 5️⃣ Regression
 with tabs[4]:
-    st.header('Regression')
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    if len(numeric_cols) >= 2:
-        target_reg = st.selectbox('Target variable', numeric_cols, key='target_reg')
-        features_reg = st.multiselect('Feature variables', numeric_cols.drop(target_reg), default=list(numeric_cols.drop(target_reg)[:3]))
-        if st.button('Run Regression') and len(features_reg) > 0:
-            X_reg = df[features_reg]
-            y_reg = df[target_reg]
-            reg_results = run_regressions(X_reg, y_reg)
+    st.header("Regression")
+    if len(num_cols) >= 2:
+        y_var = st.selectbox("Target variable (numeric)", num_cols)
+        X_vars = st.multiselect(
+            "Feature variables", num_cols.drop(y_var),
+            default=list(num_cols.drop(y_var)[:3])
+        )
+        if st.button("Run regression") and X_vars:
+            reg_res = run_regressions(df[X_vars], df[y_var])
 
-            st.subheader('Regression Metrics')
-            reg_df = pd.DataFrame({name: {
-                'Train R2': res['train_r2'],
-                'Test R2': res['test_r2'],
-                'RMSE': res['rmse']
-            } for name, res in reg_results.items()}).T
-            st.dataframe(reg_df.style.format('{:.2f}'))
+            st.subheader("Model metrics")
+            mtab = pd.DataFrame({
+                n: {"Train R²": r["train_r2"], "Test R²": r["test_r2"], "RMSE": r["rmse"]}
+                for n, r in reg_res.items()
+            }).T
+            st.dataframe(mtab.style.format("{:.2f}"))
 
-            for name, res in reg_results.items():
+            for n, r in reg_res.items():
                 fig, ax = plt.subplots()
-                ax.scatter(res['y_test'], res['y_pred'])
-                ax.set_xlabel('Actual')
-                ax.set_ylabel('Predicted')
-                ax.set_title(f'{name} Regression')
+                ax.scatter(r["y_test"], r["y_pred"])
+                ax.set_xlabel("Actual"); ax.set_ylabel("Predicted")
+                ax.set_title(n)
                 st.pyplot(fig)
     else:
-        st.info('Need numeric columns for regression analysis.')
+        st.info("Need at least two numeric columns for regression.")
