@@ -45,15 +45,15 @@ def load_data(path: str, preferred: str):
     try:
         xl = pd.ExcelFile(path)
     except FileNotFoundError:
-        st.error(f"File **{path}** not found in repo.")
+        st.error(f"File *{path}* not found in repo.")
         return pd.DataFrame()
 
     sheet_to_use = preferred if preferred in xl.sheet_names else xl.sheet_names[0]
     if preferred not in xl.sheet_names:
-        st.warning(f"Sheet **“{preferred}”** not found – using first sheet "
-                   f"**“{sheet_to_use}”** instead.")
+        st.warning(f"Sheet *“{preferred}”* not found – using first sheet "
+                   f"*“{sheet_to_use}”* instead.")
     else:
-        st.info(f"Loaded sheet **“{sheet_to_use}”**")
+        st.info(f"Loaded sheet *“{sheet_to_use}”*")
 
     return pd.read_excel(xl, sheet_name=sheet_to_use)
 
@@ -71,9 +71,9 @@ st.sidebar.title("🏷️ Navigation")
 tab = st.sidebar.radio(
     "Choose module",
     ["📊 Descriptive Analytics",
-     "🤖 Classifiers",
-     "🎯 Clusterer",
-     "🛒 Association",
+     "🤖 Classification",
+     "🎯 Clustering",
+     "🛒 Association Rules",
      "📈 Regression"]
 )
 
@@ -159,8 +159,8 @@ if tab == "📊 Descriptive Analytics":
 # ----------------------------------------------------------------
 # 🤖 CLASSIFICATION
 # ----------------------------------------------------------------
-elif tab == "🤖 Classifiers":
-    st.header("🤖 Classifiers")
+elif tab == "🤖 Classification":
+    st.header("🤖 Classification")
 
     target_col = st.selectbox("Pick categorical target", categorical_cols)
     if target_col:
@@ -248,8 +248,8 @@ elif tab == "🎯 Clustering":
 # ----------------------------------------------------------------
 # 🛒 ASSOCIATION RULES
 # ----------------------------------------------------------------
-elif tab == "🛒 Association":
-    st.header("🛒 Association")
+elif tab == "🛒 Association Rules":
+    st.header("🛒 Association Rules")
 
     bin_cols = [c for c in df.columns if df[c].dropna().isin([0,1,True,False]).all()]
     use_cols = st.multiselect("Columns to include", bin_cols+categorical_cols,
