@@ -7,3 +7,4 @@ seaborn
 mlxtend
 plotly-express
 kmodes
+openpyxl
