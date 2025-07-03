@@ -208,5 +208,5 @@ def page_clustering():
     γ = None if gamma == 0 else gamma
 
     # basic missing-value handling
-    X_num = df[num_cols].fillna_]()_
+    X_num = df[num_cols].fillna]
 
