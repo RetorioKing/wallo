@@ -71,9 +71,9 @@ st.sidebar.title("🏷️ Navigation")
 tab = st.sidebar.radio(
     "Choose module",
     ["📊 Descriptive Analytics",
-     "🤖 Classification",
-     "🎯 Clustering",
-     "🛒 Association Rules",
+     "🤖 Classifiers",
+     "🎯 Clusterer",
+     "🛒 Association",
      "📈 Regression"]
 )
 
@@ -159,8 +159,8 @@ if tab == "📊 Descriptive Analytics":
 # ----------------------------------------------------------------
 # 🤖 CLASSIFICATION
 # ----------------------------------------------------------------
-elif tab == "🤖 Classification":
-    st.header("🤖 Classification")
+elif tab == "🤖 Classifiers":
+    st.header("🤖 Classifiers")
 
     target_col = st.selectbox("Pick categorical target", categorical_cols)
     if target_col:
@@ -248,8 +248,8 @@ elif tab == "🎯 Clustering":
 # ----------------------------------------------------------------
 # 🛒 ASSOCIATION RULES
 # ----------------------------------------------------------------
-elif tab == "🛒 Association Rules":
-    st.header("🛒 Association Rules")
+elif tab == "🛒 Association":
+    st.header("🛒 Association")
 
     bin_cols = [c for c in df.columns if df[c].dropna().isin([0,1,True,False]).all()]
     use_cols = st.multiselect("Columns to include", bin_cols+categorical_cols,
