@@ -20,7 +20,7 @@ from mlxtend.frequent_patterns import apriori, association_rules
 st.set_page_config(page_title="Portfolio Analytics Dashboard", page_icon="📈", layout="wide")
 
 @st.cache_data
-def load_data(xlsx_path: str = "IA_PBL_DA_MJ25GF015 (3).xlsx", sheet: str = "streamlit_df") -> pd.DataFrame:
+def load_data(xlsx_path: str = "IA_PBL_DA_MJ25GF015 (3).xlsx", sheet: str = "Sheet1") -> pd.DataFrame:
     return pd.read_excel(xlsx_path, sheet_name=sheet)
 
 df = load_data()
