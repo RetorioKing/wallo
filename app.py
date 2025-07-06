@@ -1,5 +1,6 @@
 ###############################################################################
-# Quick Analytics Dashboard  –  Descriptive • Regression • Elbow Insight
+# Quick Analytics Dashboard
+# Descriptive • Regression • Classification (image) • Elbow Insight
 # Streamlit ≥1.33  |  scikit-learn ≥1.2  |  pandas ≥2.0
 ###############################################################################
 import streamlit as st
@@ -8,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from sklearn.linear_model import LinearRegression
 
 # ───────────────────────────  CONFIG  ───────────────────────────────────────
 st.set_page_config(page_title="Quick Analytics Dashboard", layout="wide")
@@ -25,7 +27,9 @@ st.success(f"Loaded **{sheet}** – {df.shape[0]:,} rows × {df.shape[1]} column
 st.dataframe(df.head())
 
 # ───────────────────────── 2) BUILD TABS  ───────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📈 Descriptive Stats", "📉 Regression", "👥 Elbow Insight"])
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["📈 Descriptive Stats", "📉 Regression", "🎯 Classification", "👥 Elbow Insight"]
+)
 
 # ───────────────────────  TAB 1 – DESCRIPTIVE  ─────────────────────────────
 with tab1:
@@ -47,13 +51,27 @@ with tab2:
         y = df[target]
         X_scaled = StandardScaler().fit_transform(X)
 
-        from sklearn.linear_model import LinearRegression
         model  = LinearRegression().fit(X_scaled, y)
         r2_all = model.score(X_scaled, y)
         st.write(f"R² on full data: **{r2_all:.3f}**")
 
-# ───────────────────────  TAB 3 – ELBOW CHART  ─────────────────────────────
+# ───────────────────────  TAB 3 – CLASSIFICATION (IMAGE)  ──────────────────
 with tab3:
+    st.subheader("Classification – Elbow Method Illustration")
+    img_url = "https://builtin.com/sites/www.builtin.com/files/styles/ckeditor_optimize/public/inline-images/1_elbow-method.jpeg"
+    st.image(img_url, caption="The Elbow Method visual explained",
+             use_column_width=True)
+    st.markdown(
+        """
+*This image shows how inertia (within-cluster sum of squares) decreases as we increase the
+number of clusters (**k**).  
+The “elbow” — where the curve starts to flatten — is usually taken as the optimal
+cluster count because adding more clusters beyond that point yields marginal returns.*
+"""
+    )
+
+# ───────────────────────  TAB 4 – ELBOW CHART  ─────────────────────────────
+with tab4:
     st.subheader("Elbow Method – Determining Optimal k")
 
     # Feature choice
@@ -110,7 +128,8 @@ with tab3:
         f"""
 **Interpretation:**  
 * Inertia measures how compact the clusters are – lower is better.  
-* Notice large drops until **k ≈ {elbow_k}**, then improvements level off.  
-* Therefore, **k = {elbow_k}** is a sensible choice; adding more clusters after that offers minimal benefit.
+* Notice the largest drops occur up to **k ≈ {elbow_k}**, after which the gains taper off.  
+* Therefore, **k = {elbow_k}** is a sensible cluster count; beyond that,
+  additional clusters add minimal value.
 """
     )
