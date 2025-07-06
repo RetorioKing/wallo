@@ -15,10 +15,9 @@ from kmodes.kprototypes import KPrototypes
 from mlxtend.frequent_patterns import apriori, association_rules
 import os
 
-# PAGE CONFIG
 st.set_page_config(page_title="Portfolio Analytics Dashboard", page_icon="📈", layout="wide")
 
-# ------------------- SESSION STATE -------------------
+# SESSION STATE
 if "active_excel_file" not in st.session_state:
     st.session_state.active_excel_file = None
 if "active_sheet" not in st.session_state:
@@ -33,7 +32,6 @@ def get_sheet_names(file):
     except Exception:
         return []
 
-# ------------------- TABS -------------------
 tabs = [
     "📄 View & Switch Dataset",
     "📊 Descriptive Analytics",
@@ -44,7 +42,7 @@ tabs = [
 ]
 page = st.sidebar.radio("Choose analytics module", tabs)
 
-# ------------- TAB 1: DATASET UPLOAD & CHOICE ---------------
+# TAB 1: Dataset selection and preview
 if page == "📄 View & Switch Dataset":
     st.header("📄 View & Switch Dataset")
     uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type="xlsx")
@@ -57,28 +55,22 @@ if page == "📄 View & Switch Dataset":
     if not excel_files:
         st.warning("No Excel files (.xlsx) found. Please upload one.")
         st.stop()
-
     file_default_index = 0
     if st.session_state.active_excel_file in excel_files:
         file_default_index = excel_files.index(st.session_state.active_excel_file)
-
     selected_file = st.selectbox("Select Excel file", excel_files, index=file_default_index)
     sheet_names = get_sheet_names(selected_file)
     if not sheet_names:
         st.warning("No sheets found in the selected file.")
         st.stop()
-
     sheet_default_index = 0
     if st.session_state.active_sheet in sheet_names:
         sheet_default_index = sheet_names.index(st.session_state.active_sheet)
-
     selected_sheet = st.selectbox("Select sheet", sheet_names, index=sheet_default_index)
-
     if st.button("Set as active dataset for analytics"):
         st.session_state.active_excel_file = selected_file
         st.session_state.active_sheet = selected_sheet
         st.success(f"Set '{selected_file}' / '{selected_sheet}' as active dataset.")
-
     # Preview selected sheet
     try:
         df_preview = pd.read_excel(selected_file, sheet_name=selected_sheet)
@@ -87,7 +79,7 @@ if page == "📄 View & Switch Dataset":
     except Exception as e:
         st.error(f"Error loading sheet: {e}")
 
-# ------------- ALL OTHER TABS: USE ACTIVE FILE & SHEET --------------
+# ALL OTHER TABS: USE ACTIVE FILE & SHEET
 else:
     file = st.session_state.active_excel_file
     sheet = st.session_state.active_sheet
@@ -100,7 +92,6 @@ else:
         st.error(f"Error loading '{file}' / '{sheet}': {e}")
         st.stop()
 
-    # ---------------------- Helper functions ---------------------
     def score_row(y_true, y_pred, name):
         return {"Model": name,
                 "Accuracy": round(accuracy_score(y_true, y_pred), 3),
@@ -113,7 +104,7 @@ else:
             rules_df[c] = rules_df[c].apply(lambda x: ", ".join(sorted(list(x))))
         return rules_df
 
-    # ------------------- 1️⃣ DESCRIPTIVE ANALYTICS -----------------
+    # 1️⃣  DESCRIPTIVE ANALYTICS
     if page == "📊 Descriptive Analytics":
         st.header("📊 Descriptive Portfolio Insights")
         with st.sidebar.expander("Filters", True):
@@ -163,7 +154,7 @@ else:
             fig6 = px.box(view, x="Recommended Portfolio", y="Historical Return (%)")
             st.plotly_chart(fig6, use_container_width=True)
 
-    # ------------------ 2️⃣ CLASSIFICATION --------------------
+    # 2️⃣  CLASSIFICATION
     elif page == "🤖 Classification":
         st.header("🤖 Recommended Portfolio Classifier")
         y = df["Recommended Portfolio"]
@@ -216,7 +207,7 @@ else:
         ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray");  ax_roc.legend()
         st.pyplot(fig_roc)
 
-    # ------------- 3️⃣  CLUSTERING (K-PROTOTYPES) --------------
+    # 3️⃣ CLUSTERING (K-PROTOTYPES) - OPTIMIZED
     elif page == "🎯 Clustering (K-Prototypes)":
         st.header("🎯 K-Prototypes Portfolio Segmentation")
         num_cols = ["Age", "Investment Horizon", "Annual Income", "Net worth", "Projected ROI 5years",
@@ -229,43 +220,51 @@ else:
         for c in cat_cols:
             df_clean[c] = df_clean[c].fillna("Missing").astype(str)
 
-        scaler   = StandardScaler()
-        X_num    = scaler.fit_transform(df_clean[num_cols])
-        X_cat    = df_clean[cat_cols].to_numpy()
-        X_mix    = np.hstack([X_num, X_cat])
-        cat_idx  = list(range(X_num.shape[1], X_mix.shape[1]))
+        scaler = StandardScaler()
+        X_num = scaler.fit_transform(df_clean[num_cols])
+        X_cat = df_clean[cat_cols].to_numpy()
+        X_mix = np.hstack([X_num, X_cat])
+        cat_idx = list(range(X_num.shape[1], X_mix.shape[1]))
 
-        k  = st.slider("k (clusters)", 2, 10, 4)
-        g  = st.number_input("γ (numeric-vs-categorical weight – 0 = auto)", 0.0, 10.0, 0.0, 0.1)
-        γ  = None if g == 0 else g
+        k = st.slider("k (clusters)", 2, 8, 4)
+        g = st.number_input("γ (numeric-vs-categorical weight – 0 = auto)", 0.0, 10.0, 0.0, 0.1)
+        gamma = None if g == 0 else g
 
-        kp = KPrototypes(n_clusters=k, init="Huang", n_init=10, gamma=γ, random_state=42, verbose=0)
-        clusters = kp.fit_predict(X_mix, categorical=cat_idx)
-        df["Cluster"] = clusters
-        st.success(f"Clustering complete → {k} segments")
+        run_cluster = st.button("Run K-Prototypes Clustering")
 
-        costs = []
-        for ki in range(2, 11):
-            km = KPrototypes(n_clusters=ki, n_init=5, random_state=42)
-            km.fit_predict(X_mix, categorical=cat_idx)
-            costs.append(km.cost_)
-        fig_cost, ax_cost = plt.subplots()
-        ax_cost.plot(range(2, 11), costs, marker="o")
-        ax_cost.set(xlabel="k", ylabel="Cost", title="Cost curve")
-        st.pyplot(fig_cost)
+        if run_cluster:
+            with st.spinner("Clustering in progress..."):
+                kp = KPrototypes(n_clusters=k, init="Cao", n_init=3, max_iter=30, gamma=gamma, random_state=42, verbose=0)
+                clusters = kp.fit_predict(X_mix, categorical=cat_idx)
+                df["Cluster"] = clusters
+                st.success(f"Clustering complete → {k} segments")
+                # Persona table
+                persona_num = df.groupby("Cluster")[num_cols].mean().round(1)
+                persona_cat = df.groupby("Cluster")[cat_cols].agg(lambda s: s.mode().iloc[0])
+                persona = pd.concat([persona_num, persona_cat], axis=1)
+                st.subheader("Cluster personas")
+                st.dataframe(persona)
+                st.download_button("Download labelled data",
+                                   df.to_csv(index=False).encode("utf-8"),
+                                   "clustered_data.csv",
+                                   "text/csv")
+        else:
+            st.info("Set your cluster parameters and click **Run K-Prototypes Clustering**.")
 
-        persona_num = df.groupby("Cluster")[num_cols].mean().round(1)
-        persona_cat = df.groupby("Cluster")[cat_cols].agg(lambda s: s.mode().iloc[0])
-        persona = pd.concat([persona_num, persona_cat], axis=1)
-        st.subheader("Cluster personas")
-        st.dataframe(persona)
+        with st.expander("Optional: Show cost curve (diagnostic, slow)"):
+            if st.button("Compute Cost Curve"):
+                with st.spinner("Computing cost curve..."):
+                    costs = []
+                    for ki in range(2, 9):
+                        km = KPrototypes(n_clusters=ki, n_init=1, max_iter=20, random_state=42)
+                        km.fit_predict(X_mix, categorical=cat_idx)
+                        costs.append(km.cost_)
+                    fig_cost, ax_cost = plt.subplots()
+                    ax_cost.plot(range(2, 9), costs, marker="o")
+                    ax_cost.set(xlabel="k", ylabel="Cost", title="Cost curve")
+                    st.pyplot(fig_cost)
 
-        st.download_button("Download labelled data",
-                        df.to_csv(index=False).encode("utf-8"),
-                        "clustered_data.csv",
-                        "text/csv")
-
-    # ------------- 4️⃣  ASSOCIATION RULES --------------
+    # 4️⃣  ASSOCIATION RULES
     elif page == "🛒 Association Rules":
         st.header("🛒 Portfolio Allocation Associations (Apriori)")
         alloc_cols = ["Portfolio Equity(%)", "Portfolio Bonds(%)", "Portfolio Cash(%)",
@@ -289,7 +288,7 @@ else:
                     st.dataframe(rules[["antecedents", "consequents", "support", "confidence", "lift"]]
                                 .style.format({"support":"{:.3f}", "confidence":"{:.2f}", "lift":"{:.2f}"}))
 
-    # ------------- 5️⃣  REGRESSION --------------
+    # 5️⃣  REGRESSION
     else:
         st.header("📈 Regression – Predict Historical Return (%) / Volatility")
         target = st.selectbox("Choose target variable", ["Historical Return (%)", "Portfolio Volatility"])
