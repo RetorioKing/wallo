@@ -1,3 +1,8 @@
+###############################################################################
+# Full Analytics Dashboard (EDA • Regression • Classification • Clustering • APR)
+# -- Tested on Streamlit 1.33  |  scikit-learn ≥ 1.2  |  pandas ≥ 2.0
+###############################################################################
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,156 +14,194 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, r2_score, mean_squared_error
+from sklearn.metrics import (classification_report, confusion_matrix,
+                             r2_score, mean_squared_error)
 from sklearn.cluster import KMeans
 from mlxtend.frequent_patterns import apriori, association_rules
 
-# --- Config ---
+# ----------------------------  APP CONFIG  -----------------------------------
 st.set_page_config(page_title="Full Analytics Dashboard", layout="wide")
-st.title("📊 Full Analytics Dashboard – EDA, ML, Clustering & More")
+st.title("📊 Full Analytics Dashboard")
 
-# --- Upload Excel File ---
-uploaded_file = st.file_uploader("📤 Upload your Excel file", type=["xlsx"])
+# ----------------------------  FILE UPLOAD  ----------------------------------
+uploaded_file = st.file_uploader("📤 Upload an Excel file", type=["xlsx"])
 
+# ----------------------------------------------------------------------------- 
 if uploaded_file:
-    xls = pd.ExcelFile(uploaded_file)
-    sheet_name = st.selectbox("📄 Select a sheet", xls.sheet_names)
-    df = xls.parse(sheet_name)
-    st.success(f"✅ Loaded {sheet_name} with shape {df.shape}")
+    xls        = pd.ExcelFile(uploaded_file)
+    sheet_name = st.selectbox("📄 Choose a sheet", xls.sheet_names)
+    df         = xls.parse(sheet_name)
+    st.success(f"Loaded **{sheet_name}** – shape: {df.shape}")
 
-    # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📈 Descriptive Analytics", "📉 Regression", "🎯 Classification", "👥 Clustering", "🔗 Association Rules"
-    ])
+    # ------------------------------------------------------------------------- 
+    #  TABS
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["📈 Descriptive", "📉 Regression", "🎯 Classification", "👥 Clustering", "🔗 Assoc. Rules"]
+    )
 
-    # --- Tab 1: Descriptive Analytics ---
+    # ----------------------  TAB 1: DESCRIPTIVE  -----------------------------
     with tab1:
         st.subheader("Summary Statistics")
         st.dataframe(df.describe())
 
         st.subheader("Correlation Heatmap")
-        fig, ax = plt.subplots()
-        sns.heatmap(df.select_dtypes(include=np.number).corr(), annot=True, cmap="coolwarm", ax=ax)
-        st.pyplot(fig)
+        num_df = df.select_dtypes(include=np.number)
+        if num_df.empty:
+            st.info("No numeric columns available.")
+        else:
+            fig, ax = plt.subplots()
+            sns.heatmap(num_df.corr(), annot=True, cmap="coolwarm", ax=ax)
+            st.pyplot(fig)
 
-    # --- Tab 2: Regression ---
+    # ----------------------  TAB 2: REGRESSION  ------------------------------
     with tab2:
-        st.subheader("Regression (Linear / Ridge / Lasso)")
+        st.subheader("Linear • Ridge • Lasso Regression")
         numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-        target = st.selectbox("🎯 Select target variable", numeric_cols)
-        features = st.multiselect("📌 Select independent variables", [col for col in numeric_cols if col != target])
+        if len(numeric_cols) < 2:
+            st.info("Need at least 2 numeric columns for regression.")
+        else:
+            target   = st.selectbox("Target variable", numeric_cols)
+            features = st.multiselect(
+                "Predictor variables", [c for c in numeric_cols if c != target]
+            )
+            if features and st.button("Run Regression"):
+                X, y      = df[features].copy(), df[target]
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.2, random_state=42
+                )
 
-        if features and st.button("Run Regression"):
-            X = df[features]
-            y = df[target]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                scaler           = StandardScaler()
+                X_train_scaled   = scaler.fit_transform(X_train)
+                X_test_scaled    = scaler.transform(X_test)
 
-            scaler = StandardScaler()
-            X_train_scaled = scaler.fit_transform(X_train)
-            X_test_scaled = scaler.transform(X_test)
+                models = {
+                    "Linear" : LinearRegression(),
+                    "Ridge"  : Ridge(),
+                    "Lasso"  : Lasso()
+                }
 
-            models = {
-                "Linear Regression": LinearRegression(),
-                "Ridge Regression": Ridge(),
-                "Lasso Regression": Lasso()
-            }
+                for name, model in models.items():
+                    model.fit(X_train_scaled, y_train)
+                    pred  = model.predict(X_test_scaled)
+                    st.markdown(f"**{name} Regression**")
+                    st.write("• R²:", round(r2_score(y_test, pred), 3))
+                    st.write("• RMSE:", round(np.sqrt(mean_squared_error(y_test, pred)), 3))
 
-            for name, model in models.items():
-                model.fit(X_train_scaled, y_train)
-                y_pred = model.predict(X_test_scaled)
-                st.subheader(name)
-                st.write("R² Score:", round(r2_score(y_test, y_pred), 3))
-                st.write("RMSE:", round(np.sqrt(mean_squared_error(y_test, y_pred)), 3))
-
-    # --- Tab 3: Classification ---
+    # ----------------------  TAB 3: CLASSIFICATION  --------------------------
     with tab3:
-        st.subheader("Random Forest Classification")
-        num_cols = df.select_dtypes(include=np.number).columns.tolist()
-        class_target = st.selectbox("🎯 Select classification target (binary)", num_cols)
-        class_features = st.multiselect("📌 Select features for classification", [col for col in num_cols if col != class_target])
+        st.subheader("Random Forest (Binary Classification)")
+        num_cols  = df.select_dtypes(include=np.number).columns.tolist()
+        target_cl = st.selectbox("Target (binary 0/1)", num_cols, key="clf_tgt")
+        feats_cl  = st.multiselect("Features", [c for c in num_cols if c != target_cl],
+                                   key="clf_feats")
 
-        if class_features and st.button("Run Classification"):
-            X = df[class_features]
-            y = df[class_target]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        if feats_cl and st.button("Run Classifier"):
+            X, y = df[feats_cl], df[target_cl]
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42
+            )
             scaler = StandardScaler()
             X_train = scaler.fit_transform(X_train)
-            X_test = scaler.transform(X_test)
+            X_test  = scaler.transform(X_test)
 
-            model = RandomForestClassifier(random_state=42)
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
+            clf = RandomForestClassifier(random_state=42)
+            clf.fit(X_train, y_train)
+            y_pred = clf.predict(X_test)
 
             st.text("Classification Report:")
             st.text(classification_report(y_test, y_pred))
             st.text("Confusion Matrix:")
             st.write(confusion_matrix(y_test, y_pred))
 
-    # --- Tab 4: Clustering ---
+    # ----------------------  TAB 4: CLUSTERING  ------------------------------
     with tab4:
         st.subheader("K-Means Clustering")
 
-        cluster_features = st.multiselect("🛠️ Select features for clustering", df.select_dtypes(include=np.number).columns.tolist())
+        clust_feats = st.multiselect(
+            "Select numeric features", df.select_dtypes(include=np.number).columns.tolist(),
+            key="cluster_feats"
+        )
 
-        if len(cluster_features) >= 2:
-            X = df[cluster_features]
-            scaler = StandardScaler()
+        if len(clust_feats) >= 2:
+
+            # --- Pre-processing ---
+            X = df[clust_feats].copy()
+            # Handle missing numerics
+            X = X.fillna(X.mean(numeric_only=True))
+
+            scaler  = StandardScaler()
             X_scaled = scaler.fit_transform(X)
 
-            # Elbow Method
-            st.subheader("📊 Elbow Chart")
+            # --- Elbow chart ---
+            st.markdown("##### Elbow Method")
             inertia = []
-            for k in range(1, 11):
-                kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
+            max_k = min(10, len(X))  # can't have k > n_samples
+            for k in range(1, max_k + 1):
+                kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
                 kmeans.fit(X_scaled)
                 inertia.append(kmeans.inertia_)
 
             fig, ax = plt.subplots()
-            ax.plot(range(1, 11), inertia, marker='o')
-            ax.set_title("Elbow Method for Optimal Clusters")
+            ax.plot(range(1, max_k + 1), inertia, marker="o")
             ax.set_xlabel("k")
             ax.set_ylabel("Inertia")
             st.pyplot(fig)
 
-            # Cluster slider
-            k_val = st.slider("🔢 Select number of clusters", 2, 10, 3)
+            # --- Choose k ---
+            k_val = st.slider("Choose k", 2, max_k, 3)
 
-            # Run KMeans
-            kmeans = KMeans(n_clusters=k_val, random_state=42, n_init='auto')
-            df['cluster'] = kmeans.fit_predict(X_scaled)
-
-            st.subheader("👤 Cluster Personas (Averages)")
-            persona = df.groupby('cluster')[cluster_features].mean().round(2)
-            st.dataframe(persona)
-
-            # Download
-            st.subheader("📥 Download Clustered Dataset")
-            towrite = io.BytesIO()
-            with pd.ExcelWriter(towrite, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False, sheet_name='Clustered_Data')
-            towrite.seek(0)
-
-            st.download_button(
-                label="Download Excel with Clusters",
-                data=towrite,
-                file_name="clustered_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("⚠️ Please select at least 2 numeric features for clustering.")
-
-    # --- Tab 5: Association Rules ---
-    with tab5:
-        st.subheader("Market Basket – Association Rule Mining")
-        if df.select_dtypes(include='bool').shape[1] > 0:
-            min_support = st.slider("📊 Minimum Support", 0.01, 1.0, 0.1)
+            # --- Fit final model ---
             try:
-                frequent_items = apriori(df.select_dtypes(include='bool'), min_support=min_support, use_colnames=True)
-                rules = association_rules(frequent_items, metric="lift", min_threshold=1.0)
-                st.dataframe(rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']])
+                kmeans         = KMeans(n_clusters=k_val, random_state=42, n_init=10)
+                df["cluster"]  = kmeans.fit_predict(X_scaled)
+
+                st.markdown("##### Cluster Profiles (mean values)")
+                persona = df.groupby("cluster")[clust_feats].mean().round(2)
+                st.dataframe(persona)
+
+                # --- Download button ---
+                towrite = io.BytesIO()
+                with pd.ExcelWriter(towrite, engine="xlsxwriter") as writer:
+                    df.to_excel(writer, index=False, sheet_name="Clustered_Data")
+                towrite.seek(0)
+
+                st.download_button(
+                    label="💾 Download data with clusters",
+                    data=towrite,
+                    file_name="clustered_data.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             except Exception as e:
-                st.error("Error running Apriori. Please ensure binary (True/False) format.")
+                st.error(f"Clustering failed: {e}")
+
         else:
-            st.warning("⚠️ No binary columns available for Apriori.")
+            st.info("Select **at least two** numeric features for clustering.")
+
+    # ----------------------  TAB 5: ASSOCIATION RULES  -----------------------
+    with tab5:
+        st.subheader("Apriori – Association Rules")
+        bool_df = df.select_dtypes(include="bool")
+        if bool_df.empty:
+            st.info("Need True/False columns to run Apriori.")
+        else:
+            support   = st.slider("Min support", 0.01, 1.0, 0.05, 0.01)
+            confidence = st.slider("Min confidence", 0.10, 1.0, 0.3, 0.05)
+            lift       = st.slider("Min lift", 1.0, 5.0, 1.0, 0.1)
+
+            if st.button("Run Apriori"):
+                freq_items = apriori(bool_df, min_support=support, use_colnames=True)
+                if freq_items.empty:
+                    st.warning("No frequent itemsets found with current support setting.")
+                else:
+                    rules = association_rules(freq_items, metric="confidence",
+                                              min_threshold=confidence)
+                    rules = rules[rules["lift"] >= lift]
+                    if rules.empty:
+                        st.warning("No rules matched confidence/lift thresholds.")
+                    else:
+                        st.dataframe(rules[["antecedents", "consequents",
+                                            "support", "confidence", "lift"]])
+
+# ----------------------------------------------------------------------------- 
 else:
     st.info("⬆️ Upload an Excel file to begin.")
