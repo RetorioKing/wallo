@@ -18,24 +18,22 @@ import os
 # PAGE CONFIG
 st.set_page_config(page_title="Portfolio Analytics Dashboard", page_icon="📈", layout="wide")
 
-# SESSION STATE for file and sheet selection
+# ------------------- SESSION STATE -------------------
 if "active_excel_file" not in st.session_state:
     st.session_state.active_excel_file = None
 if "active_sheet" not in st.session_state:
     st.session_state.active_sheet = None
 
-# List available Excel files in root directory
 def get_excel_files():
-    return [f for f in os.listdir() if f.lower().endswith('.xlsx')]
+    return sorted([f for f in os.listdir() if f.lower().endswith('.xlsx')])
 
-# Get all sheet names from a given Excel file
 def get_sheet_names(file):
     try:
         return pd.ExcelFile(file).sheet_names
     except Exception:
         return []
 
-# TABS
+# ------------------- TABS -------------------
 tabs = [
     "📄 View & Switch Dataset",
     "📊 Descriptive Analytics",
@@ -46,60 +44,63 @@ tabs = [
 ]
 page = st.sidebar.radio("Choose analytics module", tabs)
 
-# TAB 1: Dataset selection and preview
+# ------------- TAB 1: DATASET UPLOAD & CHOICE ---------------
 if page == "📄 View & Switch Dataset":
     st.header("📄 View & Switch Dataset")
-    # Upload file UI
-    uploaded_file = st.file_uploader("Upload Excel file", type="xlsx")
+    uploaded_file = st.file_uploader("Upload Excel file (.xlsx)", type="xlsx")
     if uploaded_file:
         file_path = uploaded_file.name
         with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
+        st.success(f"Uploaded: {file_path}")
     excel_files = get_excel_files()
     if not excel_files:
-        st.info("Please upload an Excel (.xlsx) file to begin.")
+        st.warning("No Excel files (.xlsx) found. Please upload one.")
         st.stop()
-    # File select
-    selected_file = st.selectbox("Select Excel file", excel_files, 
-                                 index=excel_files.index(st.session_state.active_excel_file) 
-                                 if st.session_state.active_excel_file in excel_files else 0)
-    # Sheet select
-    sheets = get_sheet_names(selected_file)
-    if not sheets:
-        st.warning("No sheets found in this file.")
-        st.stop()
-    selected_sheet = st.selectbox("Select sheet", sheets, 
-                                  index=sheets.index(st.session_state.active_sheet) 
-                                  if st.session_state.active_sheet in sheets else 0)
 
-    # Button to activate dataset for analytics tabs
+    file_default_index = 0
+    if st.session_state.active_excel_file in excel_files:
+        file_default_index = excel_files.index(st.session_state.active_excel_file)
+
+    selected_file = st.selectbox("Select Excel file", excel_files, index=file_default_index)
+    sheet_names = get_sheet_names(selected_file)
+    if not sheet_names:
+        st.warning("No sheets found in the selected file.")
+        st.stop()
+
+    sheet_default_index = 0
+    if st.session_state.active_sheet in sheet_names:
+        sheet_default_index = sheet_names.index(st.session_state.active_sheet)
+
+    selected_sheet = st.selectbox("Select sheet", sheet_names, index=sheet_default_index)
+
     if st.button("Set as active dataset for analytics"):
         st.session_state.active_excel_file = selected_file
         st.session_state.active_sheet = selected_sheet
-        st.success(f"Set '{selected_file}' → sheet '{selected_sheet}' as active dataset for analytics.")
+        st.success(f"Set '{selected_file}' / '{selected_sheet}' as active dataset.")
 
-    # Preview dataframe
+    # Preview selected sheet
     try:
         df_preview = pd.read_excel(selected_file, sheet_name=selected_sheet)
         st.dataframe(df_preview, use_container_width=True)
-        st.info(f"Previewing: '{selected_file}' → '{selected_sheet}' ({df_preview.shape[0]} rows, {df_preview.shape[1]} columns)")
+        st.info(f"Previewing '{selected_file}' / '{selected_sheet}' ({df_preview.shape[0]} rows, {df_preview.shape[1]} columns)")
     except Exception as e:
         st.error(f"Error loading sheet: {e}")
 
-# OTHER TABS: Use remembered file+sheet
+# ------------- ALL OTHER TABS: USE ACTIVE FILE & SHEET --------------
 else:
     file = st.session_state.active_excel_file
     sheet = st.session_state.active_sheet
-    if file is None or sheet is None:
-        st.warning("Please choose an Excel file and sheet in the 'View & Switch Dataset' tab.")
+    if not file or not sheet:
+        st.error("Please go to 'View & Switch Dataset' tab and select Excel file and sheet, then click 'Set as active dataset for analytics'.")
         st.stop()
     try:
         df = pd.read_excel(file, sheet_name=sheet)
     except Exception as e:
-        st.error(f"Error loading '{file}' → '{sheet}': {e}")
+        st.error(f"Error loading '{file}' / '{sheet}': {e}")
         st.stop()
 
-    # ---- Analytics code ----
+    # ---------------------- Helper functions ---------------------
     def score_row(y_true, y_pred, name):
         return {"Model": name,
                 "Accuracy": round(accuracy_score(y_true, y_pred), 3),
@@ -112,7 +113,7 @@ else:
             rules_df[c] = rules_df[c].apply(lambda x: ", ".join(sorted(list(x))))
         return rules_df
 
-    # 1️⃣  DESCRIPTIVE ANALYTICS
+    # ------------------- 1️⃣ DESCRIPTIVE ANALYTICS -----------------
     if page == "📊 Descriptive Analytics":
         st.header("📊 Descriptive Portfolio Insights")
         with st.sidebar.expander("Filters", True):
@@ -162,7 +163,7 @@ else:
             fig6 = px.box(view, x="Recommended Portfolio", y="Historical Return (%)")
             st.plotly_chart(fig6, use_container_width=True)
 
-    # 2️⃣  CLASSIFICATION
+    # ------------------ 2️⃣ CLASSIFICATION --------------------
     elif page == "🤖 Classification":
         st.header("🤖 Recommended Portfolio Classifier")
         y = df["Recommended Portfolio"]
@@ -215,7 +216,7 @@ else:
         ax_roc.plot([0, 1], [0, 1], linestyle="--", color="gray");  ax_roc.legend()
         st.pyplot(fig_roc)
 
-    # 3️⃣  CLUSTERING (K-PROTOTYPES)
+    # ------------- 3️⃣  CLUSTERING (K-PROTOTYPES) --------------
     elif page == "🎯 Clustering (K-Prototypes)":
         st.header("🎯 K-Prototypes Portfolio Segmentation")
         num_cols = ["Age", "Investment Horizon", "Annual Income", "Net worth", "Projected ROI 5years",
@@ -264,7 +265,7 @@ else:
                         "clustered_data.csv",
                         "text/csv")
 
-    # 4️⃣  ASSOCIATION RULES
+    # ------------- 4️⃣  ASSOCIATION RULES --------------
     elif page == "🛒 Association Rules":
         st.header("🛒 Portfolio Allocation Associations (Apriori)")
         alloc_cols = ["Portfolio Equity(%)", "Portfolio Bonds(%)", "Portfolio Cash(%)",
@@ -288,7 +289,7 @@ else:
                     st.dataframe(rules[["antecedents", "consequents", "support", "confidence", "lift"]]
                                 .style.format({"support":"{:.3f}", "confidence":"{:.2f}", "lift":"{:.2f}"}))
 
-    # 5️⃣  REGRESSION
+    # ------------- 5️⃣  REGRESSION --------------
     else:
         st.header("📈 Regression – Predict Historical Return (%) / Volatility")
         target = st.selectbox("Choose target variable", ["Historical Return (%)", "Portfolio Volatility"])
