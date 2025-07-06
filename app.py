@@ -1,118 +1,116 @@
 ###############################################################################
-# Ultra-Fast Clustering Dashboard
-# Tested on: Streamlit ≥1.33  |  scikit-learn ≥1.2  |  pandas ≥2.0
+# Quick Analytics Dashboard  –  Descriptive • Regression • Elbow Insight
+# Streamlit ≥1.33  |  scikit-learn ≥1.2  |  pandas ≥2.0
 ###############################################################################
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import io
 from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import KMeans
 
-# ────────────────────────  STREAMLIT CONFIG  ────────────────────────────────
-st.set_page_config(page_title="Ultra-Fast Clustering Dashboard", layout="wide")
-st.title("🧠 Ultra-Fast Clustering & EDA")
+# ───────────────────────────  CONFIG  ───────────────────────────────────────
+st.set_page_config(page_title="Quick Analytics Dashboard", layout="wide")
+st.title("📊 Quick Analytics Dashboard")
 
-# ───────────────────────── 1) DATA SOURCE PICKER ────────────────────────────
-@st.cache_data(show_spinner=False)
-def read_excel(upload, sheet_name):
-    """Cache Excel sheet loading to speed up repeated runs."""
-    return pd.read_excel(upload, sheet_name=sheet_name)
-
-uploaded = st.sidebar.file_uploader(
-    "📤 Upload an Excel workbook (optional)", type=["xlsx"]
-)
-
-# Demo (synthetic) datasets already in session from your earlier code
-built_in = {
-    "Cart Abandonment":    st.session_state.get("Cart_Abandonment_Dataset"),
-    "Warehousing":         st.session_state.get("Warehousing_Optimization_Dataset"),
-    "Review Authenticity": st.session_state.get("Review_Authenticity_Dataset"),
-}
-
-if uploaded:
-    sheet = st.sidebar.selectbox(
-        "🗂 Choose a sheet", pd.ExcelFile(uploaded).sheet_names
-    )
-    if sheet:
-        df = read_excel(uploaded, sheet)
-        data_label = f"{uploaded.name} › {sheet}"
-else:
-    demo_choice = st.sidebar.selectbox("🗂 Pick a demo dataset", list(built_in.keys()))
-    df = built_in[demo_choice]
-    data_label = demo_choice
-
-if df is None:
-    st.info("⬅️ Upload a file or choose a demo set in the sidebar.")
+# ───────────────────────── 1) LOAD DATA  ────────────────────────────────────
+uploaded = st.sidebar.file_uploader("📤 Upload an Excel file", type=["xlsx"])
+if not uploaded:
+    st.info("⬅️ Please upload a workbook to begin.")
     st.stop()
 
-st.success(f"Loaded **{data_label}** — {df.shape[0]:,} rows × {df.shape[1]} cols")
+sheet = st.sidebar.selectbox("🗂 Select sheet", pd.ExcelFile(uploaded).sheet_names)
+df    = pd.read_excel(uploaded, sheet_name=sheet)
+st.success(f"Loaded **{sheet}** – {df.shape[0]:,} rows × {df.shape[1]} columns")
 st.dataframe(df.head())
 
-# ──────────────────────── 2) FEATURE SELECTION ──────────────────────────────
-numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-st.subheader("Step 1 – Select numeric features for clustering")
-features = st.multiselect("Numeric columns", numeric_cols, default=numeric_cols)
+# ───────────────────────── 2) BUILD TABS  ───────────────────────────────────
+tab1, tab2, tab3 = st.tabs(["📈 Descriptive Stats", "📉 Regression", "👥 Elbow Insight"])
 
-if len(features) < 2:
-    st.warning("Please select at least two numeric columns.")
-    st.stop()
+# ───────────────────────  TAB 1 – DESCRIPTIVE  ─────────────────────────────
+with tab1:
+    st.subheader("Summary Statistics")
+    st.dataframe(df.describe())
 
-# ───────────────────── 3) MINI-BATCH K-MEANS: ELBOW & FIT ───────────────────
-X = df[features].fillna(df[features].mean(numeric_only=True))
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+# ───────────────────────  TAB 2 – REGRESSION   ─────────────────────────────
+with tab2:
+    st.subheader("Simple Linear Regression Benchmark")
+    numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
 
-max_possible_k = min(10, len(X_scaled))        # cannot exceed sample size
-elbow_limit   = st.slider(
-    "Step 2 – Preview elbow curve up to k", 2, max_possible_k, 6
-)
+    if len(numeric_cols) < 2:
+        st.warning("Need at least two numeric columns.")
+    else:
+        target   = st.selectbox("Target variable", numeric_cols, key="reg_target")
+        features = [c for c in numeric_cols if c != target]
 
-progress = st.progress(0, text="Calculating elbow curve …")
-inertia_vals = []
-for k in range(1, elbow_limit + 1):
-    mbk = MiniBatchKMeans(
-        n_clusters=k, random_state=42, n_init=5, batch_size=1024
-    )
-    mbk.fit(X_scaled)
-    inertia_vals.append(mbk.inertia_)
-    progress.progress(k / elbow_limit)
-progress.empty()
+        X = df[features].fillna(df[features].mean())
+        y = df[target]
+        X_scaled = StandardScaler().fit_transform(X)
 
-fig, ax = plt.subplots()
-ax.plot(range(1, elbow_limit + 1), inertia_vals, marker="o")
-ax.set_xlabel("k")
-ax.set_ylabel("Inertia")
-ax.set_title("Elbow Method")
-st.pyplot(fig)
+        from sklearn.linear_model import LinearRegression
+        model  = LinearRegression().fit(X_scaled, y)
+        r2_all = model.score(X_scaled, y)
+        st.write(f"R² on full data: **{r2_all:.3f}**")
 
-k_final = st.slider(
-    "Step 3 – Choose final number of clusters", 2, elbow_limit, min(3, elbow_limit)
-)
-run_cluster = st.button("🚀 Run MiniBatch K-Means")
+# ───────────────────────  TAB 3 – ELBOW CHART  ─────────────────────────────
+with tab3:
+    st.subheader("Elbow Method – Determining Optimal k")
 
-# ─────────────────────────── 4) CLUSTER & OUTPUT ────────────────────────────
-if run_cluster:
-    with st.spinner("Clustering …"):
-        mbk_final = MiniBatchKMeans(
-            n_clusters=k_final, random_state=42, n_init=10, batch_size=1024
-        )
-        df["cluster"] = mbk_final.fit_predict(X_scaled)
+    # Feature choice
+    num_cols = df.select_dtypes(include=np.number).columns.tolist()
+    chosen   = st.multiselect("Numeric columns used for clustering distances",
+                              num_cols, default=num_cols)
 
-    st.success("Clustering complete!")
-    st.subheader("Cluster profiles (mean values)")
-    st.dataframe(df.groupby("cluster")[features].mean().round(2))
+    if len(chosen) < 2:
+        st.warning("Select at least two numeric columns.")
+        st.stop()
 
-    # Excel download
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False, sheet_name="Clustered_Data")
-    buffer.seek(0)
+    # Standardize
+    X = df[chosen].fillna(df[chosen].mean())
+    X = StandardScaler().fit_transform(X)
 
-    st.download_button(
-        "💾 Download Excel with clusters",
-        data=buffer,
-        file_name="clustered_data.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # Compute inertia for k = 2–10
+    k_range = range(2, 11)
+    inertia = []
+    for k in k_range:
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        km.fit(X)
+        inertia.append(km.inertia_)
+
+    # Plot elbow curve
+    fig, ax = plt.subplots()
+    ax.plot(k_range, inertia, marker="o")
+    ax.set_title("Elbow Method")
+    ax.set_xlabel("k (number of clusters)")
+    ax.set_ylabel("Inertia")
+    st.pyplot(fig)
+
+    # Build explanatory table
+    pct_drop = np.diff(inertia) / inertia[:-1] * -100  # positive % drops
+    elbow_k  = None
+    for k_idx, pct in enumerate(pct_drop[1:], start=3):  # start checking at k=3
+        if pct < 15:                                     # small drop ⇒ elbow
+            elbow_k = k_idx
+            break
+    elbow_k = elbow_k or 3  # default to 3 if not found
+
+    explain_tbl = pd.DataFrame({
+        "k": list(k_range),
+        "Inertia": [f"{val:,.0f}" for val in inertia],
+        "Δ% vs prev": ["–"] + [f"{d:.1f}%" for d in pct_drop],
+        "Comment": ["Start"] + [
+            "Elbow candidate" if k == elbow_k else
+            ("Sharp drop" if d > 30 else "Diminishing returns")
+            for k, d in zip(list(k_range)[1:], pct_drop)
+        ]
+    })
+    st.dataframe(explain_tbl, use_container_width=True)
+
+    st.markdown(
+        f"""
+**Interpretation:**  
+* Inertia measures how compact the clusters are – lower is better.  
+* Notice large drops until **k ≈ {elbow_k}**, then improvements level off.  
+* Therefore, **k = {elbow_k}** is a sensible choice; adding more clusters after that offers minimal benefit.
+"""
     )
